@@ -44,6 +44,19 @@ def DataCleaning_GroupData():
     return clean_media
 
 
+def DataCleaning_OffCod():
+
+    clean_data = DataCleaning_MyData().drop(columns=['ITENS.Codigo', 'SomaDeHorasApontadas'])
+
+    # Agrupar pelo 'OffCod' e 'departamento' e somar os tempos de operação
+    OffCod_Agru = clean_data.groupby(['OFFCod', 'Andrea_DEPARTAMENTO.Descricao', 
+                                      'TipodeProduto', 'Produto.Nome', 'Poder Linear', 'Poder Z'], 
+                                      as_index=False, observed=True, dropna=False)['SomaDeHorasApontadasUnitario'].sum()
+
+    return OffCod_Agru
+
+
+
 def DataCleaning_frequents():
 
     # Criando dummies para dados categóricos no df mais_frequentes
