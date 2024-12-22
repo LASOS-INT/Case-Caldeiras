@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from scipy.stats import kstest, gamma, norm, weibull_min, lognorm, expon
+from scipy.stats import kstest, anderson, chi2_contingency, gamma, norm, weibull_min, lognorm, expon
 from matplotlib import pyplot as plt
 from pathlib import Path
 import warnings
@@ -10,6 +10,8 @@ def estima_distribuicao(datasets, filtros, coluna='SomaDeHorasApontadasUnitario'
         quant_datasets = len(datasets)
     else:
         quant_datasets = 1
+
+    resultados_resumo = []
 
     for i in range(quant_datasets):
         for j in range(1, 3):  # Com ou sem outliers
@@ -29,7 +31,7 @@ def estima_distribuicao(datasets, filtros, coluna='SomaDeHorasApontadasUnitario'
                 nome_arquivo = f"DURACAO-{grupo_atividade}-{outlier_status}Outlier-{k}"
 
                 # Ajusta a coluna de análise
-                filtrado[coluna] = filtrado[coluna] / 1000
+                # filtrado[coluna] = filtrado[coluna] / 1000
                 filtrado2 = filtrado[coluna]
 
                 # Detecção de outliers
@@ -66,42 +68,51 @@ def estima_distribuicao(datasets, filtros, coluna='SomaDeHorasApontadasUnitario'
                 results = {name: fit_distribution(x, dist) for name, dist in distribs.items()}
                 results = {k: v for k, v in results.items() if v is not None}
 
-                # Salva gráficos
-                # print("Gerando gráficos")
-                # output_path = Path.cwd() / f"{nome_arquivo}.pdf"
-                # with output_path.open('wb') as f:
-                #     plt.figure(figsize=(10, 8))
-                #     plt.suptitle(nome_arquivo)
-
-                #     plt.subplot(2, 2, 1)
-                #     plt.hist(x, bins=30, density=True, alpha=0.6, color='g')
-                #     for name, dist in distribs.items():
-                #         if name in results:
-                #             pdf = dist.pdf(sorted(x), *results[name])
-                #             plt.plot(sorted(x), pdf, label=name)
-                #     plt.legend()
-
-                #     plt.subplot(2, 2, 2)
-                #     plt.boxplot(x)
-                    
-                #     plt.savefig(f)
-                #     plt.close()
-
                 # Testes de aderência
                 print("Testes de aderência")
                 ad_tests = {}
+                chi2_tests = {}
+
                 for name, dist in distribs.items():
                     if name in results:
+                        params = results[name]
                         try:
-                            test_stat, p_value = kstest(x, dist.cdf, args=results[name])
-                            ad_tests[name] = {'statistic': test_stat, 'p_value': p_value}
+                            # Kolmogorov-Smirnov Test
+                            test_stat, p_value = kstest(x, dist.cdf, args=params)
+                            ad_tests[name] = {"kst_stat": test_stat, "kst_p": p_value}
                         except Exception as e:
-                            print(f"Erro no teste de aderência para {name}: {e}")
+                            print(f"Erro no KST para {name}: {e}")
                             ad_tests[name] = None
 
-                print(ad_tests)
+                        # Anderson-Darling Test
+                        if name in {"norm", "expon", "weibull"}:
+                            dist_name_for_adt = "weibull_min" if name == "weibull" else name
+                            try:
+                                ad_stat = anderson(x, dist=dist_name_for_adt)
+                                ad_tests[name]["adt_stat"] = ad_stat.statistic
+                            except Exception as e:
+                                print(f"Erro no ADT para {name}: {e}")
 
-# Exemplo de uso
-datasets = [pd.DataFrame({'SomaDeHorasApontadasUnitario': np.random.rand(100) * 1000})]
-estima_distribuicao(datasets, filtros=True)
+                        # Qui-quadrado
+                        try:
+                            observed, bins = np.histogram(x, bins=10)
+                            midpoints = (bins[:-1] + bins[1:]) / 2
+                            expected = len(x) * dist.pdf(midpoints, *params)
+                            expected[expected < 1e-5] = 1e-5
+                            chi2_stat, chi2_p = chi2_contingency([observed, expected])[:2]
+                            chi2_tests[name] = {"chi2_stat": chi2_stat, "chi2_p": chi2_p}
+                        except Exception as e:
+                            print(f"Erro no Chi-Square para {name}: {e}")
+
+                resultados_resumo.append({
+                    "dataset": i + 1,
+                    "outlier_status": outlier_status,
+                    "sample": k,
+                    "ad_tests": ad_tests,
+                    "chi2_tests": chi2_tests,
+                    "distribuicoes": distribs,
+                    "data": filtrado2.to_numpy(),  # Adicionando os dados usados
+                })
+
+    return resultados_resumo
 
