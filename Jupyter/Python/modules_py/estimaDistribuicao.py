@@ -1,6 +1,7 @@
 import pandas as pd
+import math
 import numpy as np
-from scipy.stats import kstest, anderson, chi2_contingency, gamma, norm, weibull_min, lognorm, expon
+from scipy.stats import kstest, anderson, cramervonmises, chi2_contingency, gamma, norm, weibull_min, lognorm, expon
 from matplotlib import pyplot as plt
 from pathlib import Path
 import warnings
@@ -68,6 +69,9 @@ def estima_distribuicao(datasets, filtros, coluna='SomaDeHorasApontadasUnitario'
                 results = {name: fit_distribution(x, dist) for name, dist in distribs.items()}
                 results = {k: v for k, v in results.items() if v is not None}
 
+                # Definindo número de bins do histograma
+                num_bins = int(np.sqrt(len(x)))
+
                 # Testes de aderência
                 print("Testes de aderência")
                 ad_tests = {}
@@ -84,18 +88,38 @@ def estima_distribuicao(datasets, filtros, coluna='SomaDeHorasApontadasUnitario'
                             print(f"Erro no KST para {name}: {e}")
                             ad_tests[name] = None
 
-                        # Anderson-Darling Test
-                        if name in {"norm", "expon", "weibull"}:
-                            dist_name_for_adt = "weibull_min" if name == "weibull" else name
-                            try:
-                                ad_stat = anderson(x, dist=dist_name_for_adt)
-                                ad_tests[name]["adt_stat"] = ad_stat.statistic
-                            except Exception as e:
-                                print(f"Erro no ADT para {name}: {e}")
+                        # Monte Carlo Test
+                        try:
+                            num_simulations = 1000  # Número de simulações de Monte Carlo
+                            simulated_stats = []
+                            for _ in range(num_simulations):
+                                simulated_sample = dist.rvs(*params, size=len(x))
+                                simulated_stat, _ = kstest(simulated_sample, dist.cdf, args=params)
+                                simulated_stats.append(simulated_stat)
+
+                            observed_stat, _ = kstest(x, dist.cdf, args=params)
+                            mc_p_value = (np.sum(np.array(simulated_stats) >= observed_stat) + 1) / (num_simulations + 1)
+                            ad_tests[name]["mc_stat"] = observed_stat
+                            ad_tests[name]["mc_p"] = mc_p_value
+                        except Exception as e:
+                            print(f"Erro no Monte Carlo para {name}: {e}")
+                            ad_tests[name]["mc_stat"] = None
+                            ad_tests[name]["mc_p"] = None
+
+                        # Cramér-von Mises Test
+                        try:
+                            cvm_result = cramervonmises(x, lambda v: dist.cdf(v, *params))
+                            ad_tests[name]["cvm_stat"] = cvm_result.statistic
+                            ad_tests[name]["cvm_p"] = cvm_result.pvalue
+                        except Exception as e:
+                            print(f"Erro no Cramér-von Mises para {name}: {e}")
+                            ad_tests[name]["cvm_stat"] = None
+                            ad_tests[name]["cvm_p"] = None
 
                         # Qui-quadrado
                         try:
-                            observed, bins = np.histogram(x, bins=10)
+                            sturges_rule = int((math.log2(len(x)))+1)
+                            observed, bins = np.histogram(x, sturges_rule)
                             midpoints = (bins[:-1] + bins[1:]) / 2
                             expected = len(x) * dist.pdf(midpoints, *params)
                             expected[expected < 1e-5] = 1e-5
@@ -111,7 +135,7 @@ def estima_distribuicao(datasets, filtros, coluna='SomaDeHorasApontadasUnitario'
                     "ad_tests": ad_tests,
                     "chi2_tests": chi2_tests,
                     "distribuicoes": distribs,
-                    "data": filtrado2.to_numpy(),  # Adicionando os dados usados
+                    "data": x,  # Adicionando os dados usados
                 })
 
     return resultados_resumo
