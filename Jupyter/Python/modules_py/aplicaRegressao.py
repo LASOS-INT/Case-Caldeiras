@@ -13,6 +13,10 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 
 # Função para processar dados categóricos e aplicar regressão
 def aplicar_modelos_regressao(dfs, target_column):
+
+    if isinstance(dfs, pd.DataFrame):
+        dfs = [dfs]
+
     resultados = []
 
     modelos = {

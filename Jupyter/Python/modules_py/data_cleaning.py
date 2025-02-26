@@ -56,6 +56,14 @@ def DataCleaning_OffCod():
     return OffCod_Agru
 
 
+def DataCleaning_OffCod_NotNA():
+
+    OffCod_Agru_NotNA = DataCleaning_OffCod().dropna(axis=0)
+
+    return OffCod_Agru_NotNA
+
+
+
 
 def DataCleaning_frequents():
 

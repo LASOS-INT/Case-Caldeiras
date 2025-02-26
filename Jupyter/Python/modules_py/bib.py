@@ -20,10 +20,9 @@ import os
 # Função para carregar o dataset
 
 def load_data():
-    data_path = "C:/Users/Pedro Amaral Pereira/Documents/IC INT/Git Clone/Case-Caldeiras/Jupyter/Data/AnaliseAtualizada-BDCaldeiras_13Jun22_RevAndrea.xlsx"
+    data_path = "C:/Users/pedro/OneDrive/Documents/INT Projects/Git Clone/Case-Caldeiras/Jupyter/Data/AnaliseAtualizada-BDCaldeiras_13Jun22_RevAndrea.xlsx"
     my_data = pd.read_excel(data_path)
     return my_data
-
 
 # Função para renomear os tipos de caldeiras (simplificando o nome)
 
