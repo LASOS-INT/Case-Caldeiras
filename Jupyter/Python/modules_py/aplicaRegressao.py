@@ -8,7 +8,9 @@ from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.svm import SVR
-from xgboost import XGBRegressor 
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
+from catboost import CatBoostRegressor 
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 
 # Função para processar dados categóricos e aplicar regressão
@@ -28,6 +30,8 @@ def aplicar_modelos_regressao(dfs, target_column):
         "Random Forest": RandomForestRegressor(),
         "Gradient Boosting": GradientBoostingRegressor(),
         "XGBoost": XGBRegressor(objective='reg:squarederror', random_state=42),
+        "LightGBM": LGBMRegressor(random_state=42),
+        "CatBoost": CatBoostRegressor(random_state=42, verbose=0),
         "SVR (Linear Kernel)": SVR(kernel='rbf', C=10, epsilon=0.2),
         "SVR (RBF Kernel)": SVR(kernel='rbf', C=10, epsilon=0.2),
         "SVR (Sigmoid Kernel)": SVR(kernel='sigmoid', C=10, epsilon=0.2)
@@ -36,23 +40,23 @@ def aplicar_modelos_regressao(dfs, target_column):
     for i, df in enumerate(dfs):
         print(f"Processando dataset {i + 1}...")
 
-        # Separar variáveis independentes (X) e dependente (y)
+        # Separando variáveis independentes (X) e dependentes (y)
         X = df.drop(columns=[target_column])
         y = df[target_column]
 
-        # Dividir em treino e teste
+        # Dividindo em treino e teste
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
 
-        # Identificar colunas categóricas e numéricas
+        # Identificaando colunas categóricas e numéricas
         cat_cols = X.select_dtypes(include=['object', 'category']).columns
         num_cols = X.select_dtypes(include=['number']).columns
 
-        # Converte valores categóricos para strings em ambos os conjuntos de treino e teste
+        # Convertendo valores categóricos para strings em ambos os conjuntos de treino e teste (garantindo que o OneHotEncoder não dê erro)
         X_train[cat_cols] = X_train[cat_cols].astype(str)
         X_test[cat_cols] = X_test[cat_cols].astype(str)
 
-        # Criar pipeline de pré-processamento
+        # Pipeline de pré-processamento
         preprocessor = ColumnTransformer(
             transformers=[
                 ('num', StandardScaler(), num_cols),
@@ -74,7 +78,7 @@ def aplicar_modelos_regressao(dfs, target_column):
             }
             cv_results = cross_validate(pipeline, X_train, y_train, cv=5, scoring=scoring)
 
-            # Calcular métricas médias e por fold
+            # Calculando métricas médias e por fold
             mean_cv_rmse = np.sqrt(-cv_results['test_rmse'].mean())
             mean_cv_r2 = cv_results['test_r2'].mean()
             mean_cv_mae = -cv_results['test_mae'].mean()
