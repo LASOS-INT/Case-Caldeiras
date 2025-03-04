@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split, cross_val_score, cross_validate
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -66,9 +66,18 @@ def aplicar_modelos_regressao(dfs, target_column):
                 ('regressor', modelo)
             ])
 
-            # Validação cruzada para robustez
-            scores = cross_val_score(pipeline, X_train, y_train, cv=5, scoring='neg_mean_squared_error')
-            mean_cv_rmse = np.sqrt(-scores.mean())
+            # Validação cruzada para robustez (tentativa de detalhar por fold)
+            scoring = {
+                'rmse': 'neg_mean_squared_error',
+                'r2': 'r2',
+                'mae': 'neg_mean_absolute_error'
+            }
+            cv_results = cross_validate(pipeline, X_train, y_train, cv=5, scoring=scoring)
+
+            # Calcular métricas médias e por fold
+            mean_cv_rmse = np.sqrt(-cv_results['test_rmse'].mean())
+            mean_cv_r2 = cv_results['test_r2'].mean()
+            mean_cv_mae = -cv_results['test_mae'].mean()
 
             # Treinar modelo
             pipeline.fit(X_train, y_train)
@@ -88,7 +97,12 @@ def aplicar_modelos_regressao(dfs, target_column):
                 "R2": r2,
                 "MAE": mae,
                 "RMSE": rmse,
+                "CV R2": mean_cv_r2,
                 "CV RMSE": mean_cv_rmse,
+                "CV MAE": mean_cv_mae,
+                "CV RMSE por fold": cv_results['test_rmse'],
+                "CV R2 por fold": cv_results['test_r2'],
+                "CV MAE por fold": cv_results['test_mae']
             })
 
     return pd.DataFrame(resultados)
