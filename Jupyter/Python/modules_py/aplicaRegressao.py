@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, cross_val_score, cross_validate
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder, OrdinalEncoder, OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
@@ -13,8 +13,44 @@ from lightgbm import LGBMRegressor
 from catboost import CatBoostRegressor 
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 
+
+
+# Função para aplicar diferentes encoders
+def aplicar_encoder(preprocessor, encoder, cat_cols, num_cols):
+    """
+    Aplica o encoder especificado nas colunas categóricas.
+    :param preprocessor: ColumnTransformer para pré-processamento.
+    :param encoder: Encoder a ser aplicado (ex: OneHotEncoder, LabelEncoder).
+    :param cat_cols: Lista de colunas categóricas.
+    :param num_cols: Lista de colunas numéricas.
+    :return: ColumnTransformer configurado.
+    """
+    if encoder == 'onehot':
+        preprocessor.transformers = [
+            ('num', StandardScaler(), num_cols),
+            ('cat', OneHotEncoder(handle_unknown='ignore'), cat_cols)
+        ]
+    elif encoder == 'label':
+        preprocessor.transformers = [
+            ('num', StandardScaler(), num_cols),
+            ('cat', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1), cat_cols)
+        ]
+    else:
+        raise ValueError(f"Encoder '{encoder}' não suportado.")
+    return preprocessor
+
+
+
+
 # Função para processar dados categóricos e aplicar regressão
-def aplicar_modelos_regressao(dfs, target_column):
+def aplicar_modelos_regressao(dfs, target_column, encoder='onehot'):
+    """
+    Aplica modelos de regressão com diferentes encoders.
+    :param dfs: Lista de DataFrames ou um único DataFrame.
+    :param target_column: Nome da coluna alvo.
+    :param encoder: Encoder a ser usado ('onehot' ou 'label').
+    :return: DataFrame com os resultados.
+    """
 
     if isinstance(dfs, pd.DataFrame):
         dfs = [dfs]
@@ -26,19 +62,19 @@ def aplicar_modelos_regressao(dfs, target_column):
         "Ridge": Ridge(),
         "Lasso": Lasso(),
         "ElasticNet": ElasticNet(),
-        "Arvore de Decisao": DecisionTreeRegressor(),
-        "Random Forest": RandomForestRegressor(),
+        "Arvore de Decisao": DecisionTreeRegressor(random_state=42),
+        "Random Forest": RandomForestRegressor(random_state=42),
         "Gradient Boosting": GradientBoostingRegressor(),
         "XGBoost": XGBRegressor(objective='reg:squarederror', random_state=42),
         "LightGBM": LGBMRegressor(random_state=42),
         "CatBoost": CatBoostRegressor(random_state=42, verbose=0),
-        "SVR (Linear Kernel)": SVR(kernel='rbf', C=10, epsilon=0.2),
+        "SVR (Linear Kernel)": SVR(kernel='linear', C=10, epsilon=0.2),
         "SVR (RBF Kernel)": SVR(kernel='rbf', C=10, epsilon=0.2),
         "SVR (Sigmoid Kernel)": SVR(kernel='sigmoid', C=10, epsilon=0.2)
     }
 
     for i, df in enumerate(dfs):
-        print(f"Processando dataset {i + 1}...")
+        print(f"Processando dataset {i + 1} com '{encoder}'")
 
         # Separando variáveis independentes (X) e dependentes (y)
         X = df.drop(columns=[target_column])
@@ -60,9 +96,12 @@ def aplicar_modelos_regressao(dfs, target_column):
         preprocessor = ColumnTransformer(
             transformers=[
                 ('num', StandardScaler(), num_cols),
-                ('cat', OneHotEncoder(handle_unknown='ignore'), cat_cols)
+                ('cat', OneHotEncoder(handle_unknown='ignore'), cat_cols) # Placeholder para ser substituído (dependendo do encoder)
             ]
         )
+
+        # Aplicar o encoder especificado
+        preprocessor = aplicar_encoder(preprocessor, encoder, cat_cols, num_cols)
 
         for nome_modelo, modelo in modelos.items():
             pipeline = Pipeline(steps=[
@@ -97,6 +136,7 @@ def aplicar_modelos_regressao(dfs, target_column):
             # Armazenar resultados
             resultados.append({
                 "Dataset": f"Dataset {i + 1}",
+                "Encoder": encoder,
                 "Modelo": nome_modelo,
                 "R2": r2,
                 "MAE": mae,
