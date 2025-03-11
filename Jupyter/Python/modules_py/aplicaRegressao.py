@@ -12,17 +12,19 @@ from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 from catboost import CatBoostRegressor 
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from category_encoders import TargetEncoder
 
 
 
 # Função para aplicar diferentes encoders
-def aplicar_encoder(preprocessor, encoder, cat_cols, num_cols):
+def aplicar_encoder(preprocessor, encoder, cat_cols, num_cols, y_train=None):
     """
     Aplica o encoder especificado nas colunas categóricas.
     :param preprocessor: ColumnTransformer para pré-processamento.
     :param encoder: Encoder a ser aplicado (ex: OneHotEncoder, LabelEncoder).
     :param cat_cols: Lista de colunas categóricas.
     :param num_cols: Lista de colunas numéricas.
+    :param y_train: Target para o Target Encoding (obrigatório se encoder for 'target').
     :return: ColumnTransformer configurado.
     """
     if encoder == 'onehot':
@@ -34,6 +36,13 @@ def aplicar_encoder(preprocessor, encoder, cat_cols, num_cols):
         preprocessor.transformers = [
             ('num', StandardScaler(), num_cols),
             ('cat', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1), cat_cols)
+        ]
+    elif encoder == 'target_enc':
+        if y_train is None:
+            raise ValueError("O target 'y_train' deve ser fornecido para o Target Encoding.")
+        preprocessor.transformers = [
+            ('num', StandardScaler(), num_cols),
+            ('cat', TargetEncoder(), cat_cols)  # Usando o TargetEncoder
         ]
     else:
         raise ValueError(f"Encoder '{encoder}' não suportado.")
@@ -48,7 +57,7 @@ def aplicar_modelos_regressao(dfs, target_column, encoder='onehot'):
     Aplica modelos de regressão com diferentes encoders.
     :param dfs: Lista de DataFrames ou um único DataFrame.
     :param target_column: Nome da coluna alvo.
-    :param encoder: Encoder a ser usado ('onehot' ou 'label').
+    :param encoder: Encoder a ser usado ('onehot', 'label', ou 'target_enc).
     :return: DataFrame com os resultados.
     """
 
@@ -101,7 +110,7 @@ def aplicar_modelos_regressao(dfs, target_column, encoder='onehot'):
         )
 
         # Aplicar o encoder especificado
-        preprocessor = aplicar_encoder(preprocessor, encoder, cat_cols, num_cols)
+        preprocessor = aplicar_encoder(preprocessor, encoder, cat_cols, num_cols, y_train)
 
         for nome_modelo, modelo in modelos.items():
             pipeline = Pipeline(steps=[

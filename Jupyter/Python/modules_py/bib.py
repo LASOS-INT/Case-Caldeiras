@@ -20,7 +20,7 @@ import os
 # Função para carregar o dataset
 
 def load_data():
-    data_path = "C:/Users/pedro/OneDrive/Documents/INT Projects/Git Clone/Case-Caldeiras/Jupyter/Data/AnaliseAtualizada-BDCaldeiras_13Jun22_RevAndrea.xlsx"
+    data_path = "C:/Users/pedro/OneDrive/Documents/INT Projects/Git Clone/Case-Caldeiras/Jupyter/Data/BDCaldeiras_27Fev2025.xlsx"
     my_data = pd.read_excel(data_path)
     return my_data
 
