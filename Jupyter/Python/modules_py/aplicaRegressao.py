@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score, cross_validate
-from sklearn.preprocessing import LabelEncoder, OrdinalEncoder, OneHotEncoder, StandardScaler
-from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer, make_column_transformer
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
@@ -10,62 +10,44 @@ from sklearn.tree import DecisionTreeRegressor
 from sklearn.svm import SVR
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
-from catboost import CatBoostRegressor 
+from catboost import CatBoostRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from category_encoders import TargetEncoder
+import re
 
 
-
-# Função para aplicar diferentes encoders
-def aplicar_encoder(preprocessor, encoder, cat_cols, num_cols, y_train=None):
+def sanitizar_nomes_colunas(feature_names):
     """
-    Aplica o encoder especificado nas colunas categóricas.
-    :param preprocessor: ColumnTransformer para pré-processamento.
-    :param encoder: Encoder a ser aplicado (ex: OneHotEncoder, LabelEncoder).
-    :param cat_cols: Lista de colunas categóricas.
-    :param num_cols: Lista de colunas numéricas.
-    :param y_train: Target para o Target Encoding (obrigatório se encoder for 'target').
-    :return: ColumnTransformer configurado.
+    Sanitiza os nomes das colunas para remover caracteres especiais.
+    :param feature_names: Lista de nomes das colunas.
+    :return: Lista de nomes sanitizados.
     """
-    if encoder == 'onehot':
-        preprocessor.transformers = [
-            ('num', StandardScaler(), num_cols),
-            ('cat', OneHotEncoder(handle_unknown='ignore'), cat_cols)
-        ]
-    elif encoder == 'label':
-        preprocessor.transformers = [
-            ('num', StandardScaler(), num_cols),
-            ('cat', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1), cat_cols)
-        ]
-    elif encoder == 'target_enc':
-        if y_train is None:
-            raise ValueError("O target 'y_train' deve ser fornecido para o Target Encoding.")
-        preprocessor.transformers = [
-            ('num', StandardScaler(), num_cols),
-            ('cat', TargetEncoder(), cat_cols)  # Usando o TargetEncoder
-        ]
-    else:
-        raise ValueError(f"Encoder '{encoder}' não suportado.")
-    return preprocessor
+    return [re.sub(r'[\[\]<>,]', '_', col) for col in feature_names]
 
 
-
-
-# Função para processar dados categóricos e aplicar regressão
-def aplicar_modelos_regressao(dfs, target_column, encoder='onehot'):
+def aplicar_modelos_regressao(df, target_column, n_folds=4):
     """
-    Aplica modelos de regressão com diferentes encoders.
-    :param dfs: Lista de DataFrames ou um único DataFrame.
+    Aplica modelos de regressão com diferentes encoders (OneHot, Label, Target) usando validação cruzada com k-folds.
+    :param df: DataFrame contendo os dados.
     :param target_column: Nome da coluna alvo.
-    :param encoder: Encoder a ser usado ('onehot', 'label', ou 'target_enc).
+    :param n_folds: Número de folds para validação cruzada.
     :return: DataFrame com os resultados.
     """
+    # Identificando colunas categóricas e numéricas
+    cat_cols = df.select_dtypes(include=['object', 'category']).columns
+    num_cols = df.select_dtypes(include=['number']).columns.drop(target_column)
 
-    if isinstance(dfs, pd.DataFrame):
-        dfs = [dfs]
+    # Convertendo valores categóricos para strings (garantindo compatibilidade com encoders)
+    df[cat_cols] = df[cat_cols].astype(str)
 
-    resultados = []
+    # Lista de encoders a serem testados
+    encoders = {
+        'onehot': OneHotEncoder(handle_unknown='ignore', sparse_output=False),
+        'label': OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1),
+        'target_enc': TargetEncoder()
+    }
 
+    # Modelos a serem testados
     modelos = {
         "Regressao Linear": LinearRegression(),
         "Ridge": Ridge(),
@@ -82,80 +64,111 @@ def aplicar_modelos_regressao(dfs, target_column, encoder='onehot'):
         "SVR (Sigmoid Kernel)": SVR(kernel='sigmoid', C=10, epsilon=0.2)
     }
 
-    for i, df in enumerate(dfs):
-        print(f"Processando dataset {i + 1} com '{encoder}'")
+    resultados = []
 
-        # Separando variáveis independentes (X) e dependentes (y)
-        X = df.drop(columns=[target_column])
-        y = df[target_column]
+    # K-Fold Cross Validation
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
 
-        # Dividindo em treino e teste
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    for encoder_name, encoder in encoders.items():
+        print(f"\nProcessando com encoder: {encoder_name}")
 
+        # Dicionário para armazenar métricas de cada modelo
+        metricas_por_modelo = {nome_modelo: {"R2": [], "MAE": [], "RMSE": []} for nome_modelo in modelos.keys()}
 
-        # Identificaando colunas categóricas e numéricas
-        cat_cols = X.select_dtypes(include=['object', 'category']).columns
-        num_cols = X.select_dtypes(include=['number']).columns
+        for fold, (train_index, test_index) in enumerate(kf.split(df)):
+            X_train, X_test = df.iloc[train_index], df.iloc[test_index]
+            y_train, y_test = df[target_column].iloc[train_index], df[target_column].iloc[test_index]
 
-        # Convertendo valores categóricos para strings em ambos os conjuntos de treino e teste (garantindo que o OneHotEncoder não dê erro)
-        X_train[cat_cols] = X_train[cat_cols].astype(str)
-        X_test[cat_cols] = X_test[cat_cols].astype(str)
+            # Aplicando o encoder
+            if encoder_name == 'target_enc':
+                # Target Encoding é aplicado apenas no treino
+                X_train[cat_cols] = encoder.fit_transform(X_train[cat_cols], y_train)
+                X_test[cat_cols] = encoder.transform(X_test[cat_cols])
+                preprocessor = make_column_transformer(
+                    (StandardScaler(), num_cols),
+                    ('passthrough', cat_cols)
+                )
+            else:
+                # OneHot ou Label Encoding aplicados no dataset completo
+                preprocessor = make_column_transformer(
+                    (StandardScaler(), num_cols),
+                    (encoder, cat_cols)
+                )
 
-        # Pipeline de pré-processamento
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ('num', StandardScaler(), num_cols),
-                ('cat', OneHotEncoder(handle_unknown='ignore'), cat_cols) # Placeholder para ser substituído (dependendo do encoder)
-            ]
-        )
+            # Pré-processar dados
+            X_train_preprocessed = preprocessor.fit_transform(X_train)
+            X_test_preprocessed = preprocessor.transform(X_test)
 
-        # Aplicar o encoder especificado
-        preprocessor = aplicar_encoder(preprocessor, encoder, cat_cols, num_cols, y_train)
+            # Converter para DataFrame para manter os nomes das colunas
+            if hasattr(preprocessor, 'get_feature_names_out'):
+                feature_names = preprocessor.get_feature_names_out()
+            else:
+                feature_names = num_cols.tolist() + cat_cols.tolist()
 
-        for nome_modelo, modelo in modelos.items():
-            pipeline = Pipeline(steps=[
-                ('preprocessor', preprocessor),
-                ('regressor', modelo)
-            ])
+            # Sanitizar nomes das colunas
+            feature_names = sanitizar_nomes_colunas(feature_names)
 
-            # Validação cruzada para robustez (tentativa de detalhar por fold)
-            scoring = {
-                'rmse': 'neg_mean_squared_error',
-                'r2': 'r2',
-                'mae': 'neg_mean_absolute_error'
-            }
-            cv_results = cross_validate(pipeline, X_train, y_train, cv=5, scoring=scoring)
+            X_train_preprocessed = pd.DataFrame(X_train_preprocessed, columns=feature_names)
+            X_test_preprocessed = pd.DataFrame(X_test_preprocessed, columns=feature_names)
 
-            # Calculando métricas médias e por fold
-            mean_cv_rmse = np.sqrt(-cv_results['test_rmse'].mean())
-            mean_cv_r2 = cv_results['test_r2'].mean()
-            mean_cv_mae = -cv_results['test_mae'].mean()
+            for nome_modelo, modelo in modelos.items():
+                pipeline = Pipeline(steps=[
+                    ('regressor', modelo)
+                ])
 
-            # Treinar modelo
-            pipeline.fit(X_train, y_train)
+                # Treinar modelo
+                pipeline.fit(X_train_preprocessed, y_train)
 
-            # Previsões
-            y_pred = pipeline.predict(X_test)
+                # Previsões
+                y_pred = pipeline.predict(X_test_preprocessed)
 
-            # Métricas de avaliação
-            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-            r2 = r2_score(y_test, y_pred)
-            mae = mean_absolute_error(y_test, y_pred)
+                # Métricas de avaliação
+                rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+                r2 = r2_score(y_test, y_pred)
+                mae = mean_absolute_error(y_test, y_pred)
 
-            # Armazenar resultados
+                # Armazenar métricas no dicionário
+                metricas_por_modelo[nome_modelo]["R2"].append(r2)
+                metricas_por_modelo[nome_modelo]["MAE"].append(mae)
+                metricas_por_modelo[nome_modelo]["RMSE"].append(rmse)
+
+                # Armazenar resultados por fold
+                resultados.append({
+                    "Encoder": encoder_name,
+                    "Fold": fold + 1,
+                    "Modelo": nome_modelo,
+                    "R2": r2,
+                    "MAE": mae,
+                    "RMSE": rmse
+                })
+
+        # Calcular médias das métricas por modelo e adicionar ao resultados
+        for nome_modelo, metricas in metricas_por_modelo.items():
+            media_r2 = np.mean(metricas["R2"])
+            media_mae = np.mean(metricas["MAE"])
+            media_rmse = np.mean(metricas["RMSE"])
+
             resultados.append({
-                "Dataset": f"Dataset {i + 1}",
-                "Encoder": encoder,
+                "Encoder": encoder_name,
+                "Fold": "Média",
                 "Modelo": nome_modelo,
-                "R2": r2,
-                "MAE": mae,
-                "RMSE": rmse,
-                "CV R2": mean_cv_r2,
-                "CV RMSE": mean_cv_rmse,
-                "CV MAE": mean_cv_mae,
-                "CV RMSE por fold": cv_results['test_rmse'],
-                "CV R2 por fold": cv_results['test_r2'],
-                "CV MAE por fold": cv_results['test_mae']
+                "R2": media_r2,
+                "MAE": media_mae,
+                "RMSE": media_rmse
             })
 
     return pd.DataFrame(resultados)
+
+
+# Exemplo de uso
+data = {
+    'cat_feature_1': ['A', 'B', 'A', 'C', 'B', 'C', 'A', 'B'],
+    'cat_feature_2': ['X', 'Y', 'X', 'Y', 'X', 'Y', 'X', 'Y'],
+    'num_feature_1': [1, 2, 3, 4, 5, 6, 7, 8],
+    'num_feature_2': [10, 20, 30, 40, 50, 60, 70, 80],
+    'target': [100, 200, 150, 250, 300, 350, 400, 450]
+}
+
+df = pd.DataFrame(data)
+resultados = aplicar_modelos_regressao(df, target_column='target', n_folds=4)
+print(resultados)
