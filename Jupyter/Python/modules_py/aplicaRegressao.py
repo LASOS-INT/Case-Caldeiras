@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler, MinMaxScaler
 from sklearn.compose import ColumnTransformer, make_column_transformer
+from sklearn.decomposition import PCA
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
@@ -57,7 +58,8 @@ def aplicar_modelos_regressao(df, target_column, n_folds=4):
         'onehot': OneHotEncoder(handle_unknown='ignore', sparse_output=False),
         'label': OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1),
         'target_enc': TargetEncoder(),
-        'mix_enc': None  # Será definido dinamicamente
+        'mix_enc': None,  # Será definido dinamicamente
+        'onehot_pca': None  # Será definido dinamicamente
     }
 
     # Modelos a serem testados
@@ -116,6 +118,18 @@ def aplicar_modelos_regressao(df, target_column, n_folds=4):
                     (StandardScaler(), num_cols),
                     (OneHotEncoder(handle_unknown='ignore', sparse_output=False), onehot_cols),
                     (OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1), label_cols)
+                )
+
+            elif encoder_name == 'onehot_pca':
+                # OneHot Encoding seguido de PCA
+                onehot_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+                pca = PCA(n_components=0.95)  # Manter 95% da variância
+                preprocessor = make_column_transformer(
+                    (StandardScaler(), num_cols),
+                    (Pipeline(steps=[
+                        ('onehot', onehot_encoder),
+                        ('pca', pca)
+                    ]), cat_cols)
                 )
 
             else:
