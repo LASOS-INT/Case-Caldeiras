@@ -136,7 +136,7 @@ BoxplotTodosItens<-plot_ly(data=my_data,x=~ITENS.Codigo,y=~SomaDeHorasApontadasU
 
 #### criando df main_descricao
 
-main_descricao<-my_data %>% filter(ITENS.Codigo!="") %>%  
+main_descricao<-my_data %>% filter(ITENS.Codigo!="") %>%
   group_by(ITENS.Codigo, Andrea_DEPARTAMENTO.Descricao) %>% #juntando os iguais
   count( sort = TRUE) %>% head(n=15) %>% droplevels()
 main_descricao$Concatena=paste(main_descricao$ITENS.Codigo, main_descricao$Andrea_DEPARTAMENTO.Descricao)
